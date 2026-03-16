@@ -1,0 +1,210 @@
+{
+  "name": "AI YouTube Summarizer — Advanced",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "AI YouTube Summarizer",
+        "formDescription": "Paste any YouTube video URL — AI will summarize it instantly!",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Your Name",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "e.g. Thrishanth Reddy"
+            },
+            {
+              "fieldLabel": "YouTube Video URL",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "https://www.youtube.com/watch?v=xxxxx"
+            },
+            {
+              "fieldLabel": "Summary Style",
+              "fieldType": "select",
+              "requiredField": true,
+              "multiselect": false,
+              "options": {
+                "values": [
+                  { "option": "Key Points (bullet list)" },
+                  { "option": "Short Paragraph (2-3 lines)" },
+                  { "option": "Detailed Summary" },
+                  { "option": "Study Notes (for learning)" },
+                  { "option": "Action Items (what to do next)" }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [0, 0],
+      "id": "ytadv-001-001-001-000000000001",
+      "name": "YouTube Form",
+      "webhookId": "yt-adv-summarizer-003"
+    },
+    {
+      "parameters": {
+        "jsCode": "const url = $input.item.json['YouTube Video URL'];\n\nlet videoId = '';\ntry {\n  if (url.includes('watch?v=')) {\n    videoId = url.split('watch?v=')[1].split('&')[0];\n  } else if (url.includes('youtu.be/')) {\n    videoId = url.split('youtu.be/')[1].split('?')[0];\n  } else if (url.includes('/shorts/')) {\n    videoId = url.split('/shorts/')[1].split('?')[0];\n  } else if (url.includes('/embed/')) {\n    videoId = url.split('/embed/')[1].split('?')[0];\n  }\n} catch(e) { videoId = ''; }\n\nreturn {\n  json: {\n    videoId: videoId.trim(),\n    originalUrl: url,\n    userName: $input.item.json['Your Name'],\n    summaryStyle: $input.item.json['Summary Style']\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "ytadv-001-001-001-000000000002",
+      "name": "Extract Video ID"
+    },
+    {
+      "parameters": {
+        "url": "=https://youtube-transcript3.p.rapidapi.com/api/transcript?videoId={{ $json.videoId }}&lang=en",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-rapidapi-host",
+              "value": "youtube-transcript3.p.rapidapi.com"
+            },
+            {
+              "name": "x-rapidapi-key",
+              "value": "YOUR_RAPIDAPI_KEY_HERE"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [480, 0],
+      "id": "ytadv-001-001-001-000000000003",
+      "name": "Fetch Transcript via RapidAPI"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json;\n\nlet transcript = '';\n\n// Handle RapidAPI youtube-transcript3 response format\ntry {\n  if (Array.isArray(data)) {\n    // Array of transcript segments\n    transcript = data.map(item => item.text || item.transcript || '').join(' ');\n  } else if (data.transcript && Array.isArray(data.transcript)) {\n    transcript = data.transcript.map(item => item.text || '').join(' ');\n  } else if (data.transcriptText) {\n    transcript = data.transcriptText;\n  } else if (typeof data === 'string') {\n    transcript = data;\n  } else {\n    // Try to extract any text content\n    transcript = JSON.stringify(data);\n  }\n} catch(e) {\n  transcript = 'Could not parse transcript';\n}\n\n// Clean the text\nconst cleanTranscript = transcript\n  .replace(/<[^>]*>/g, ' ')\n  .replace(/\\[.*?\\]/g, '')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .substring(0, 10000);\n\nreturn {\n  json: {\n    transcript: cleanTranscript,\n    transcriptLength: cleanTranscript.length,\n    videoId: $('Extract Video ID').item.json.videoId,\n    originalUrl: $('Extract Video ID').item.json.originalUrl,\n    userName: $('Extract Video ID').item.json.userName,\n    summaryStyle: $('Extract Video ID').item.json.summaryStyle,\n    hasTranscript: cleanTranscript.length > 100\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0],
+      "id": "ytadv-001-001-001-000000000004",
+      "name": "Parse Transcript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-transcript",
+              "leftValue": "={{ $json.hasTranscript }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [960, 0],
+      "id": "ytadv-001-001-001-000000000005",
+      "name": "Has Transcript?"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Video URL: {{ $json.originalUrl }}\nSummary Style: {{ $json.summaryStyle }}\nTranscript:\n{{ $json.transcript }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert YouTube content summarizer.\n\nSummarize the video transcript based on the requested style:\n\nKey Points → 5-8 bullet points, start with KEY POINTS\nShort Paragraph → 2-3 sentences, start with VIDEO SUMMARY\nDetailed Summary → 200-250 words, start with DETAILED SUMMARY\nStudy Notes → Sections: Topic, Concepts, Facts, Takeaways — start with STUDY NOTES\nAction Items → Numbered steps to implement, start with ACTION ITEMS\n\nAlways end with:\n---\nVIDEO INFO\n- URL: [url]\n- Watch time saved: ~X minutes\n- Best for: [audience]\n---\n\nBe accurate. Only use information from the transcript."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [1200, -80],
+      "id": "ytadv-001-001-001-000000000006",
+      "name": "Summarize with Gemini"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1280, 160],
+      "id": "ytadv-001-001-001-000000000007",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const summary = $input.item.json.text || 'No summary generated';\nconst videoUrl = $('Parse Transcript').item.json.originalUrl;\nconst userName = $('Parse Transcript').item.json.userName;\nconst style = $('Parse Transcript').item.json.summaryStyle;\nconst length = $('Parse Transcript').item.json.transcriptLength;\n\nconst output = `\n╔══════════════════════════════════════╗\n       AI YOUTUBE SUMMARIZER RESULT\n╚══════════════════════════════════════╝\n\nUser: ${userName}\nVideo: ${videoUrl}\nStyle: ${style}\nTranscript: ${length} characters processed\nStatus: SUCCESS ✅\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nSUMMARY:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${summary}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nPowered by n8n + Google Gemini\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;\n\nreturn {\n  json: {\n    result: output,\n    summaryOnly: summary,\n    videoUrl: videoUrl,\n    userName: userName,\n    style: style,\n    status: 'SUCCESS'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, -80],
+      "id": "ytadv-001-001-001-000000000008",
+      "name": "Format Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "const videoUrl = $('Parse Transcript').item.json.originalUrl;\nconst userName = $('Parse Transcript').item.json.userName;\n\nreturn {\n  json: {\n    result: `ERROR ❌\\n\\nSorry ${userName}, could not fetch transcript for:\\n${videoUrl}\\n\\nPossible reasons:\\n1. Video has no captions or subtitles\\n2. Video is age restricted\\n3. Video is private or unavailable\\n4. Your RapidAPI key is invalid or expired\\n\\nFix:\\n- Try a different video (TED Talks always work)\\n- Check your RapidAPI key at rapidapi.com\\n- Make sure the video has CC captions enabled`,\n    status: 'ERROR'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 160],
+      "id": "ytadv-001-001-001-000000000009",
+      "name": "No Transcript Error"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "YouTube Form": {
+      "main": [[{ "node": "Extract Video ID", "type": "main", "index": 0 }]]
+    },
+    "Extract Video ID": {
+      "main": [[{ "node": "Fetch Transcript via RapidAPI", "type": "main", "index": 0 }]]
+    },
+    "Fetch Transcript via RapidAPI": {
+      "main": [[{ "node": "Parse Transcript", "type": "main", "index": 0 }]]
+    },
+    "Parse Transcript": {
+      "main": [[{ "node": "Has Transcript?", "type": "main", "index": 0 }]]
+    },
+    "Has Transcript?": {
+      "main": [
+        [{ "node": "Summarize with Gemini", "type": "main", "index": 0 }],
+        [{ "node": "No Transcript Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [[{ "node": "Summarize with Gemini", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Summarize with Gemini": {
+      "main": [[{ "node": "Format Output", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "ytadv-v003-001-001-000000000001",
+  "meta": { "templateCredsSetupCompleted": false },
+  "id": "AIYouTubeSummarizerAdvanced",
+  "tags": []
+}
